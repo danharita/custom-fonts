@@ -1,0 +1,35 @@
+
+@font-face {
+    font-family: 'David-Bold';
+    src: url('fonts/DAVIDBD.TTF') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Guttman-Stam';
+    src: url('fonts/GuttmanStam.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Guttman-Yad-Brush';
+    src: url('fonts/GuttmanYadBrush.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Anka-CLM-Bold';
+    src: url('fonts/ANKACLM-BOLD.TTF') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Ktav-Yad-CLM-BoldItalic';
+    src: url('fonts/KtavYadCLM-BoldItalic.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
