@@ -16,10 +16,10 @@ const num = (s) => {
   return m ? Number(m[0]) : null;
 };
 
-async function get(url, tries = 3) {
+async function get(url, tries = 2) {
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'he' }, redirect: 'follow', signal: AbortSignal.timeout(20000) });
+      const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'he' }, redirect: 'follow', signal: AbortSignal.timeout(15000) });
       if (r.ok) return await r.text();
       if (r.status === 404) return null;
     } catch (e) { /* retry */ }
@@ -114,17 +114,20 @@ async function crawl(log = console.log, prev = null) {
 
   const results = [];
   let failedUrls = [];
+  // The 2all server starts throttling after a few hundred quick requests. When pages keep failing
+  // in a row we stop the pass (instead of waiting minutes per page) and retry the rest later.
   async function run(list, workers, pause) {
-    let i = 0, done = 0;
+    let i = 0, done = 0, streak = 0;
     const failed = [];
     async function worker() {
       while (i < list.length) {
+        if (streak >= 6) { failed.push(...list.slice(i)); i = list.length; log('[catalog] site is throttling, stopping this pass'); break; }
         const u = list[i++];
         const html = await get(u);
         done++;
         if (done % 50 === 0) log(`[catalog] ${done}/${list.length} pages, ${failed.length} failed`);
-        if (!html) failed.push(u);
-        else { try { results.push(parsePage(html, u)); } catch (e) { log('[catalog] parse error', u, e.message); } }
+        if (!html) { failed.push(u); streak++; }
+        else { streak = 0; try { results.push(parsePage(html, u)); } catch (e) { log('[catalog] parse error', u, e.message); } }
         await new Promise((r) => setTimeout(r, pause)); // be gentle with the shop server
       }
     }
@@ -133,9 +136,9 @@ async function crawl(log = console.log, prev = null) {
   }
   failedUrls = await run(urls, CONCURRENCY, 400);
   if (failedUrls.length) {
-    log(`[catalog] ${failedUrls.length} failed, retrying slowly in a minute`);
-    await new Promise((r) => setTimeout(r, 60e3));
-    failedUrls = await run(failedUrls, 1, 1200);
+    log(`[catalog] ${failedUrls.length} failed, retrying slowly in 3 minutes`);
+    await new Promise((r) => setTimeout(r, 180e3));
+    failedUrls = await run(failedUrls, 1, 1500);
   }
   // Pages that still failed: keep what we knew about them from the previous crawl.
   if (prev && failedUrls.length) {
@@ -164,7 +167,7 @@ async function crawl(log = console.log, prev = null) {
   for (const p of products) for (const c of p.crumbs) if (c.url) addPage(c.name, c.url);
 
   log(`[catalog] ${products.length} products, ${pages.length} pages, ${failed} failed, in ${Math.round((Date.now() - t0) / 1000)}s`);
-  return { builtAt: new Date().toISOString(), products, pages };
+  return { builtAt: new Date().toISOString(), products, pages, failed };
 }
 
 // Compact text version for the system prompt. Products get short keys (P1, P2 …)
