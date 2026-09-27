@@ -7,7 +7,7 @@ const cheerio = require('cheerio');
 
 const SITE = process.env.SITE_URL || 'https://www.harita.co.il';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 DanHaritaChat/1.0';
-const CONCURRENCY = Number(process.env.CRAWL_CONCURRENCY || 4);
+const CONCURRENCY = Number(process.env.CRAWL_CONCURRENCY || 2);
 const DESC_MAX = 240;
 
 const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -80,6 +80,7 @@ function parsePage(html, url) {
     type: 'product',
     id: String(id || ''),
     url: canonical,
+    srcUrl: url,
     name: h1,
     price: price || null,
     oldPrice,
@@ -91,28 +92,57 @@ function parsePage(html, url) {
   };
 }
 
-async function crawl(log = console.log) {
+async function crawl(log = console.log, prev = null) {
   const t0 = Date.now();
   const sm = await get(SITE + '/sitemap.xml');
   if (!sm) throw new Error('sitemap not reachable');
-  const urls = [...new Set([...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].replace(/&amp;/g, '&').trim()))]
-    .filter((u) => !/Article2\.asp|contact1\.asp/i.test(u));
+  const entries = [];
+  const seenUrl = new Set();
+  for (const m of sm.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+    const loc = (m[1].match(/<loc>([^<]+)<\/loc>/) || [])[1];
+    if (!loc) continue;
+    const u = loc.replace(/&amp;/g, '&').trim();
+    if (seenUrl.has(u) || /Article2\.asp|contact1\.asp/i.test(u)) continue;
+    seenUrl.add(u);
+    entries.push({ u, lastmod: (m[1].match(/<lastmod>([^<]+)<\/lastmod>/) || [])[1] || '' });
+  }
+  // Shop products first, newest first: if the site starts throttling us, what is lost is old gallery pages.
+  const isProd = (u) => /prodid=/i.test(u);
+  entries.sort((a, b) => (isProd(b.u) - isProd(a.u)) || b.lastmod.localeCompare(a.lastmod));
+  const urls = entries.map((e) => e.u);
   log(`[catalog] sitemap: ${urls.length} urls`);
 
   const results = [];
-  let i = 0, done = 0, failed = 0;
-  async function worker() {
-    while (i < urls.length) {
-      const u = urls[i++];
-      const html = await get(u);
-      done++;
-      if (done % 50 === 0) log(`[catalog] ${done}/${urls.length} pages, ${failed} failed`);
-      if (!html) { failed++; continue; }
-      try { results.push(parsePage(html, u)); } catch (e) { log('[catalog] parse error', u, e.message); }
-      await new Promise((r) => setTimeout(r, 150)); // be gentle with the shop server
+  let failedUrls = [];
+  async function run(list, workers, pause) {
+    let i = 0, done = 0;
+    const failed = [];
+    async function worker() {
+      while (i < list.length) {
+        const u = list[i++];
+        const html = await get(u);
+        done++;
+        if (done % 50 === 0) log(`[catalog] ${done}/${list.length} pages, ${failed.length} failed`);
+        if (!html) failed.push(u);
+        else { try { results.push(parsePage(html, u)); } catch (e) { log('[catalog] parse error', u, e.message); } }
+        await new Promise((r) => setTimeout(r, pause)); // be gentle with the shop server
+      }
     }
+    await Promise.all(Array.from({ length: workers }, worker));
+    return failed;
   }
-  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  failedUrls = await run(urls, CONCURRENCY, 400);
+  if (failedUrls.length) {
+    log(`[catalog] ${failedUrls.length} failed, retrying slowly in a minute`);
+    await new Promise((r) => setTimeout(r, 60e3));
+    failedUrls = await run(failedUrls, 1, 1200);
+  }
+  // Pages that still failed: keep what we knew about them from the previous crawl.
+  if (prev && failedUrls.length) {
+    const fails = new Set(failedUrls);
+    for (const p of prev.products || []) if (fails.has(p.url) || fails.has(p.srcUrl)) results.push(p);
+  }
+  const failed = failedUrls.length;
 
   const byId = new Map();
   for (const r of results) {

@@ -51,7 +51,7 @@ async function refreshCatalog(force) {
   if (!force && age < REFRESH_HOURS - 1) return false;
   crawling = true;
   try {
-    const cat = await catalog.crawl();
+    const cat = await catalog.crawl(console.log, CAT);
     if (cat.products.length >= Math.max(Number(process.env.MIN_PRODUCTS || 5), CAT.products.length * 0.5)) {
       setCatalog(cat);
       catalog.save(CATALOG_FILE, cat);
