@@ -6,7 +6,7 @@ const path = require('path');
 const cheerio = require('cheerio');
 
 const SITE = process.env.SITE_URL || 'https://www.harita.co.il';
-const UA = 'Mozilla/5.0 (compatible; DanHaritaChatBot/1.0; +' + SITE + ')';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 DanHaritaChat/1.0';
 const CONCURRENCY = Number(process.env.CRAWL_CONCURRENCY || 4);
 const DESC_MAX = 240;
 
@@ -19,7 +19,7 @@ const num = (s) => {
 async function get(url, tries = 3) {
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'he' }, redirect: 'follow' });
+      const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'he' }, redirect: 'follow', signal: AbortSignal.timeout(20000) });
       if (r.ok) return await r.text();
       if (r.status === 404) return null;
     } catch (e) { /* retry */ }
@@ -100,12 +100,14 @@ async function crawl(log = console.log) {
   log(`[catalog] sitemap: ${urls.length} urls`);
 
   const results = [];
-  let i = 0;
+  let i = 0, done = 0, failed = 0;
   async function worker() {
     while (i < urls.length) {
       const u = urls[i++];
       const html = await get(u);
-      if (!html) continue;
+      done++;
+      if (done % 50 === 0) log(`[catalog] ${done}/${urls.length} pages, ${failed} failed`);
+      if (!html) { failed++; continue; }
       try { results.push(parsePage(html, u)); } catch (e) { log('[catalog] parse error', u, e.message); }
       await new Promise((r) => setTimeout(r, 150)); // be gentle with the shop server
     }
@@ -131,7 +133,7 @@ async function crawl(log = console.log) {
   for (const r of results) if (r.type === 'page') addPage(r.title, r.url);
   for (const p of products) for (const c of p.crumbs) if (c.url) addPage(c.name, c.url);
 
-  log(`[catalog] ${products.length} products, ${pages.length} pages in ${Math.round((Date.now() - t0) / 1000)}s`);
+  log(`[catalog] ${products.length} products, ${pages.length} pages, ${failed} failed, in ${Math.round((Date.now() - t0) / 1000)}s`);
   return { builtAt: new Date().toISOString(), products, pages };
 }
 
