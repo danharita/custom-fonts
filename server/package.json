@@ -1,0 +1,10 @@
+{
+  "name": "dan-harita-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chat agent server for harita.co.il",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "cheerio": "^1.0.0" }
+}
